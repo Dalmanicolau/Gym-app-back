@@ -1,4 +1,5 @@
 import './db.js';
+import dotenv from 'dotenv'
 import cookieParser from 'cookie-parser';
 import bodyParser from 'body-parser';
 import express from 'express';
@@ -11,15 +12,18 @@ import dashboardRoutes from './routes/dashboard.js';
 import paymentsRoutes from './routes/payments.js';
 import notificationRoutes from './routes/notification.js'
 
+dotenv.config();
 
+const { FRONTEND_URL } = process.env;
 const app = express();
+
 
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(cookieParser());
 app.use(morgan('dev'));
 app.use(cors({
-     origin:"https://gym-app-front-nu.vercel.app"   
+     origin: FRONTEND_URL  
 }));
 app.use(express.json());
 
