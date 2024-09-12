@@ -6,7 +6,7 @@
     "server": "nodemon app.js",
     "dev": "nodemon app.js",
     "start": "node app.js",
-    "build": "npm install && npm install --prefix frontend && npm run build --prefix frontend"
+    "build": "npm install && npm install"
   },
   "type": "module",
   "keywords": [],
