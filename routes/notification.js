@@ -15,7 +15,7 @@ router.get('/expiring', async (req, res) => {
   
       const notifications = expiringMembers.map(member => ({
         memberId: member._id,
-        message: `La membresía de ${member.name} vence el ${member.plan.expirationDate.toLocaleDateString()}.`,
+        message: `El plan de ${member.name} vence el ${member.plan.expirationDate.toLocaleDateString('es-ES')}.`,
         date: today
       }));
   
