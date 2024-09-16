@@ -28,10 +28,14 @@ const paymentSchema = new mongoose.Schema({
 }
 );
 
-paymentSchema.pre('findByIdAndRemove', function(next) {
-  Notification.deleteMany({ payment: this._id });
+paymentSchema.pre('findOneAndRemove', async function(next) {
+  const payment = await this.model.findOne(this.getQuery());
+  if (payment) {
+    await Notification.deleteMany({ payment: payment._id });
+  }
   next();
 });
+
 
 const Payment = mongoose.model("Payment", paymentSchema);
 export default Payment;

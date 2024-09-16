@@ -56,21 +56,39 @@ router.get("/", async (req, res) => {
     });
 
     const sportsIncome = await Payment.aggregate([
+      { $unwind: "$activity" },  // Descomponemos el arreglo de actividades
       {
         $group: {
-          _id: "$activity",
-          income: { $sum: "$amount" },
+          _id: "$_id",  // Agrupamos por el ID del pago
+          activities: { $push: "$activity" },  // Agrupamos todas las actividades relacionadas con el pago
+          totalAmount: { $first: "$amount" },  // Obtenemos el monto total del pago
+        },
+      },
+      {
+        $project: {
+          activities: 1,
+          totalAmount: 1,
+          numberOfActivities: { $size: "$activities" },  // Contamos el número de actividades
+        },
+      },
+      { $unwind: "$activities" },  // Volvemos a descomponer las actividades
+      {
+        $group: {
+          _id: "$activities",  // Agrupamos por actividad
+          income: { $sum: { $divide: ["$totalAmount", "$numberOfActivities"] } },  // Distribuimos proporcionalmente el monto entre las actividades
         },
       },
     ]);
-
+    
     const activityByIncome = await Promise.all(
       sportsIncome.map(async (i) => {
-        const sport = await Activity.findById(i._id);
-        const income = i.income;
+        const sport = await Activity.findById(i._id);  // Obtenemos los detalles de la actividad
+        const income = i.income;  // El ingreso proporcional
         return { sport, income };
       })
     );
+    
+    
 
     const totalIncome = payments.reduce((accumulator, object) => {
       return accumulator + object.amount;
@@ -79,6 +97,7 @@ router.get("/", async (req, res) => {
     const notifications = await Notification.find({});
 
     const sportsMembers = await Payment.aggregate([
+      { $unwind: "$activity" },
       { $group: { _id: "$activity", count: { $sum: 1 } } },
     ]);
 
