@@ -4,27 +4,13 @@ import Notification from '../models/Notification.js'
 
 const router = express.Router();
 
-router.get('/expiring', async (req, res) => {
+  router.get('/', async (req, res) => {
     try {
-      const today = new Date();
-      const nextWeek = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
-  
-      const expiringMembers = await Member.find({
-        'plan.expirationDate': { $lte: nextWeek }
-      });
-  
-      const notifications = expiringMembers.map(member => ({
-        memberId: member._id,
-        message: `El plan de ${member.name} vence el ${member.plan.expirationDate.toLocaleDateString('es-ES')}.`,
-        date: today
-      }));
-  
-      await Notification.insertMany(notifications);
-  
-      res.status(200).json({ message: 'Notificaciones generadas', notifications });
+      const notification = await Notification.find();  
+      res.status(200).json(notification);
     } catch (error) {
-      res.status(500).json({ message: 'Error al generar notificaciones', error });
+      res.status(500).json({ message: 'Error al obtener las notificaciones', error });
     }
-  });
+  })
 
   export default router;
