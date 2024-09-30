@@ -4,6 +4,7 @@ const memberSchema = new mongoose.Schema({
   name: String,
   email: String,
   cellphone: String,
+  birthday: Date,
   plan: {
     type: { type: String, enum: ['Mensual', 'Semestral'], required: true },
     initDate: { type: Date, required: true },
