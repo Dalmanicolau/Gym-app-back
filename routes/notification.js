@@ -1,5 +1,4 @@
 import express from 'express';
-import Member from '../models/Members.js'
 import Notification from '../models/Notification.js'
 
 const router = express.Router();

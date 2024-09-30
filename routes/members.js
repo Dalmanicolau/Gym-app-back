@@ -6,7 +6,7 @@ const router = express.Router();
 
 router.post('/', async (req, res) => {
   try {
-    const { name, email, cellphone, plan, activities, automaticRenewal, promotion } = req.body;
+    const { name, email, cellphone, birthday,  plan, activities, automaticRenewal, promotion } = req.body;
 
     const existingMember = await Member.findOne({ email });
     if (existingMember) {
@@ -49,6 +49,7 @@ router.post('/', async (req, res) => {
       name,
       email,
       cellphone,
+      birthday,
       plan: {
         type: plan.type,
         promotion: promotion,
@@ -72,7 +73,7 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, cellphone, plan, activities, automaticRenewal } = req.body;
+    const { name, email, cellphone, birthday, plan, activities, automaticRenewal } = req.body;
 
     // Buscar miembro existente por ID
     const existingMember = await Member.findById(id);
@@ -86,58 +87,62 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ message: 'El correo electrónico ya está en uso por otro miembro.' });
     }
 
-    // Verificar si se recibieron actividades
-    if (!activities || !Array.isArray(activities) || activities.length === 0) {
-      return res.status(422).json({ message: 'Debe seleccionar al menos una actividad.' });
-    }
-
-    // Obtener y procesar actividades
-    const activityIds = activities.map(id => id.toString());
-    const activitiesData = await Activity.find({ '_id': { $in: activityIds } });
-
-    // Verificar si las actividades proporcionadas existen en la base de datos
-    if (activitiesData.length !== activities.length) {
-      return res.status(404).json({ message: 'Una o más actividades seleccionadas no existen.' });
-    }
-
-    const hasMusculacion = activitiesData.some(activity => activity.category === 'musculacion');
-    const hasClass = activitiesData.some(activity => activity.category === 'class');
-
-    // Determinar si se aplica promoción
-    const promotion = hasMusculacion && hasClass;
-
     let totalPriceActivities = 0;
+    let promotion = false;
 
-    // Calcular el precio basado en las actividades y la promoción
-    if (promotion) {
-      totalPriceActivities = 19000;  // Si hay promoción (musculación + clases)
-    } else if (hasMusculacion || hasClass) {
-      totalPriceActivities = 17000;  // Solo musculación o solo clases
-    } else {
-      return res.status(422).json({ message: 'Debe seleccionar al menos una actividad válida.' });
+    // Solo procesar actividades si se envían en el body
+    if (activities && activities.length > 0) {
+      const activityIds = activities.map(id => id.toString());
+      const activitiesData = await Activity.find({ '_id': { $in: activityIds } });
+
+      // Verificar si las actividades proporcionadas existen en la base de datos
+      if (activitiesData.length !== activities.length) {
+        return res.status(404).json({ message: 'Una o más actividades seleccionadas no existen.' });
+      }
+
+      const hasMusculacion = activitiesData.some(activity => activity.category === 'musculacion');
+      const hasClass = activitiesData.some(activity => activity.category === 'class');
+
+      // Determinar si se aplica promoción
+      promotion = hasMusculacion && hasClass;
+
+      // Calcular el precio basado en las actividades y la promoción
+      if (promotion) {
+        totalPriceActivities = 19000;  // Si hay promoción (musculación + clases)
+      } else if (hasMusculacion || hasClass) {
+        totalPriceActivities = 17000;  // Solo musculación o solo clases
+      }
+
+      // Actualizar actividades solo si se proporcionan
+      existingMember.activities = activityIds;
     }
 
-    if (!plan?.initDate || isNaN(new Date(plan?.initDate))) {
-      return res.status(422).json({ message: 'Fecha de inicio inválida.' });
+    // Validar plan si existe
+    if (plan) {
+      if (!plan?.initDate || isNaN(new Date(plan?.initDate))) {
+        return res.status(422).json({ message: 'Fecha de inicio inválida.' });
+      }
+
+      const expirationDate = plan.type === 'Mensual' ?
+        new Date(new Date(plan.initDate).setMonth(new Date(plan.initDate).getMonth() + 1)) :
+        new Date(new Date(plan.initDate).setMonth(new Date(plan.initDate).getMonth() + 6));
+
+      // Actualizar el plan
+      existingMember.plan = {
+        type: plan?.type || existingMember.plan.type,
+        promotion: promotion,  // Promoción se deduce automáticamente si se envían actividades
+        price: totalPriceActivities || existingMember.plan.price, // Si no se envían actividades, se mantiene el precio actual
+        initDate: plan?.initDate || existingMember.plan.initDate,
+        expirationDate: expirationDate || existingMember.plan.expirationDate,
+        lastRenewalDate: plan?.initDate || existingMember.plan.lastRenewalDate
+      };
     }
-    
-    const expirationDate = plan.type === 'Mensual' ? 
-      new Date(new Date(plan.initDate).setMonth(new Date(plan.initDate).getMonth() + 1)) :
-      new Date(new Date(plan.initDate).setMonth(new Date(plan.initDate).getMonth() + 6));
-    
-    // Actualizar los campos del miembro
+
+    // Actualizar los campos opcionales
     existingMember.name = name || existingMember.name;
     existingMember.email = email || existingMember.email;
     existingMember.cellphone = cellphone || existingMember.cellphone;
-    existingMember.plan = {
-      type: plan?.type || existingMember.plan.type,
-      promotion: promotion,  // Promoción se deduce automáticamente
-      price: totalPriceActivities,
-      initDate: plan?.initDate || existingMember.plan.initDate,
-      expirationDate: expirationDate || existingMember.plan.expirationDate,
-      lastRenewalDate: plan?.initDate || existingMember.plan.lastRenewalDate
-    };
-    existingMember.activities = activityIds.length ? activityIds : existingMember.activities;
+    existingMember.birthday = birthday || existingMember.birthday;
     existingMember.automaticRenewal = automaticRenewal !== undefined ? automaticRenewal : existingMember.automaticRenewal;
 
     // Guardar los cambios
@@ -159,6 +164,7 @@ router.put('/:id', async (req, res) => {
     res.status(500).json({ message: 'Ocurrió un error interno en el servidor al actualizar el miembro.' });
   }
 });
+
 
 
 
