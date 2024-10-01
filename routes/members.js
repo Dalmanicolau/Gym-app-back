@@ -29,13 +29,13 @@ router.post('/', async (req, res) => {
 
     if (promotion) {
       // Si hay promoción, el precio es 19,000
-      totalPriceActivities = 19000;
+      totalPriceActivities = 21000;
     } else if (hasMusculacion && hasClass) {
       // Si no hay promoción, pero el miembro selecciona musculación y al menos una clase
-      totalPriceActivities = 19000;
+      totalPriceActivities = 21000;
     } else {
       // Si no hay promoción y solo musculación o solo clases
-      totalPriceActivities = 17000;
+      totalPriceActivities = 18000;
     }
 
     // Imprimir el precio calculado
@@ -108,9 +108,9 @@ router.put('/:id', async (req, res) => {
 
       // Calcular el precio basado en las actividades y la promoción
       if (promotion) {
-        totalPriceActivities = 19000;  // Si hay promoción (musculación + clases)
+        totalPriceActivities = 21000;  // Si hay promoción (musculación + clases)
       } else if (hasMusculacion || hasClass) {
-        totalPriceActivities = 17000;  // Solo musculación o solo clases
+        totalPriceActivities = 18000;  // Solo musculación o solo clases
       }
 
       // Actualizar actividades solo si se proporcionan
@@ -164,11 +164,6 @@ router.put('/:id', async (req, res) => {
     res.status(500).json({ message: 'Ocurrió un error interno en el servidor al actualizar el miembro.' });
   }
 });
-
-
-
-
-
 
 // Obtener todos los member
 router.get('/', async (req, res) => {
@@ -232,6 +227,16 @@ router.get('/all', async (req,res) => {
     res.status(200).json(members)
   } catch (error) {
     res.status(500).json({message: 'Error al obtener los miembros', error})
+  }
+})
+
+router.delete('/:id', async (req,res) => {
+  try {
+    const memberDeleted = Member.findByIdAndDelete(id);
+    res.status(200).json(memberDeleted)
+    if (!memberDeleted) return res.status(404).json("Miembro no encontrado")
+  } catch (error) {
+    res.status(500).json({message: "Internal Server error", error})
   }
 })
 
