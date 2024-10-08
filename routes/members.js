@@ -6,8 +6,8 @@ const router = express.Router();
 
 router.post("/", async (req, res) => {
   try {
-    const { name, email, cellphone, plan, activities, automaticRenewal } =
-      req.body;
+
+    const { name, email, cellphone, birthday,  plan, activities, automaticRenewal } = req.body;
 
     const existingMember = await Member.findOne({ email });
     if (existingMember) {
@@ -17,6 +17,7 @@ router.post("/", async (req, res) => {
           message: "El miembro ya existe. No se puede crear un duplicado.",
         });
     }
+
 
     const activityIds = activities.map((id) => id.toString());
     const activitiesData = await Activity.find({ _id: { $in: activityIds } });
@@ -34,10 +35,12 @@ router.post("/", async (req, res) => {
             )
           );
 
+
     const newMember = new Member({
       name,
       email,
       cellphone,
+      birthday,
       plan: {
         type: plan.type,
         promotion: plan.promotion,
@@ -61,8 +64,9 @@ router.post("/", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, cellphone, plan, activities, automaticRenewal } =
-      req.body;
+
+    const { name, email, cellphone, birthday, plan, activities, automaticRenewal } = req.body;
+
 
     const existingMember = await Member.findById(id);
     if (!existingMember) {
@@ -79,6 +83,7 @@ router.put("/:id", async (req, res) => {
           message: "El correo electrónico ya está en uso por otro miembro.",
         });
     }
+
 
     if (!activities || !Array.isArray(activities) || activities.length === 0) {
       return res
@@ -130,6 +135,7 @@ router.put("/:id", async (req, res) => {
       automaticRenewal !== undefined
         ? automaticRenewal
         : existingMember.automaticRenewal;
+
 
     await existingMember.save();
 
@@ -220,5 +226,15 @@ router.get("/all", async (req, res) => {
     res.status(500).json({ message: "Error al obtener los miembros", error });
   }
 });
+
+router.delete('/:id', async (req,res) => {
+  try {
+    const memberDeleted = Member.findByIdAndDelete(id);
+    res.status(200).json(memberDeleted)
+    if (!memberDeleted) return res.status(404).json("Miembro no encontrado")
+  } catch (error) {
+    res.status(500).json({message: "Internal Server error", error})
+  }
+})
 
 export default router;
