@@ -11,6 +11,9 @@ import userRoutes from './routes/users.js';
 import dashboardRoutes from './routes/dashboard.js';
 import paymentsRoutes from './routes/payments.js';
 import notificationRoutes from './routes/notification.js'
+import { runNotificationCronJob } from './cron-job/cron.js'; // Adjust the path as needed
+import cron from 'node-cron';
+
 
 dotenv.config();
 
@@ -34,6 +37,14 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/notifications', notificationRoutes);
 
+cron.schedule('0 0 * * *', () => {
+    console.log('Running notification cron job at:', new Date().toISOString());
+    runNotificationCronJob().catch(error => {
+      console.error('Error in notification cron job:', error);
+    });
+  });
+
 app.listen(3001, () => {
     console.log('server running on port', 3001);
+    console.log('Cron job scheduled to run every minute');
 });
