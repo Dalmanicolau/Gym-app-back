@@ -12,95 +12,184 @@ router.get("/", async (req, res) => {
     const today = new Date();
     const monthDate = new Date(today.setMonth(today.getMonth() - 1));
 
+    // Basic metrics
     const membersCount = await Member.countDocuments({});
-
     const membersPerMonth = await Member.countDocuments({
       createdAt: { $gte: monthDate },
     });
-
     const totalActivity = await Activity.countDocuments({});
-     
-    // Contador de planes por vencer
+
+    // Expiring members count
     const currentDay = moment().tz("America/Argentina/Cordoba");
     const nextWeek = currentDay.clone().add(7, 'days').toDate();
-    console.log(nextWeek)
     const expiringMembersCount = await Member.countDocuments({
       'plan.expirationDate': { $lte: nextWeek },
     });
 
+    // Get all payments for total income calculation
     const payments = await Payment.find();
+    const totalIncome = payments.reduce((accumulator, object) => {
+      return accumulator + object.amount;
+    }, 0);
 
-    const table = Array(12).fill(0);
-    const monthlySubs = await Member.aggregate([
-      { $group: { _id: { $month: "$createdAt" }, subs: { $sum: 1 } } }
+    // Active members aggregation
+    const activeMembers = await Member.aggregate([
+      {
+        $project: {
+          months: {
+            $map: {
+              input: { $range: [0, 12] },
+              as: "month",
+              in: {
+                month: "$$month",
+                isActive: {
+                  $and: [
+                    { 
+                      $lte: [
+                        { $month: "$plan.startDate" },
+                        { $add: ["$$month", 1] }
+                      ]
+                    },
+                    {
+                      $gte: [
+                        { $month: "$plan.expirationDate" },
+                        { $add: ["$$month", 1] }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      { $unwind: "$months" },
+      {
+        $group: {
+          _id: "$months.month",
+          activeCount: {
+            $sum: { $cond: ["$months.isActive", 1, 0] }
+          }
+        }
+      },
+      { $sort: { "_id": 1 } }
     ]);
 
-    monthlySubs.forEach((item) => {
-      table[item._id - 1] = item.subs;
+    // Transform active members into 12-month array
+    const activeMembersTable = Array(12).fill(0);
+    activeMembers.forEach((item) => {
+      activeMembersTable[item._id] = item.activeCount;
     });
 
-    // Obtener ingresos por mes
+    // Updated payment aggregation logic
     const now = new Date();
     const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), 1);
 
     const paymentsByMonth = await Payment.aggregate([
-      { $match: { date: { $gte: oneYearAgo, $lte: now } } },
-      { $group: { _id: { year: { $year: "$date" }, month: { $month: "$date" } }, totalIncome: { $sum: "$amount" } } },
-      { $sort: { "_id.year": 1, "_id.month": 1 } }
-    ]);
-
-    const incomeByMonth = Array(12).fill(0);
-    paymentsByMonth.forEach((payment) => {
-      const monthIndex = payment._id.month - 1;
-      incomeByMonth[monthIndex] += payment.totalIncome;
-    });
-
-    const sportsIncome = await Payment.aggregate([
-      { $unwind: "$activity" },  // Descomponemos el arreglo de actividades
+      {
+        $match: {
+          date: {
+            $gte: oneYearAgo,
+            $lte: now
+          }
+        }
+      },
+      {
+        $project: {
+          amount: 1,
+          month: { $month: "$date" },
+          year: { $year: "$date" },
+          isCurrentYear: {
+            $eq: [{ $year: "$date" }, now.getFullYear()]
+          }
+        }
+      },
       {
         $group: {
-          _id: "$_id",  // Agrupamos por el ID del pago
-          activities: { $push: "$activity" },  // Agrupamos todas las actividades relacionadas con el pago
-          totalAmount: { $first: "$amount" },  // Obtenemos el monto total del pago
+          _id: {
+            month: "$month",
+            year: "$year"
+          },
+          totalIncome: { $sum: "$amount" }
+        }
+      },
+      {
+        $sort: {
+          "_id.year": 1,
+          "_id.month": 1
+        }
+      }
+    ]);
+
+    // Debug logging
+    console.log('Payment aggregation results:', paymentsByMonth);
+
+    // Transform payments into 12-month array
+    const incomeByMonth = Array(12).fill(0);
+    paymentsByMonth.forEach((payment) => {
+      let monthIndex;
+      if (payment._id.year === now.getFullYear()) {
+        monthIndex = payment._id.month - 1;
+      } else {
+        const monthDiff = (now.getMonth() + 1) - payment._id.month;
+        if (monthDiff < 0) {
+          monthIndex = 12 + monthDiff;
+        }
+      }
+      
+      if (monthIndex >= 0 && monthIndex < 12) {
+        incomeByMonth[monthIndex] = payment.totalIncome;
+      }
+    });
+
+    // Debug logging
+    console.log('Final income by month array:', incomeByMonth);
+
+    // Sports income aggregation
+    const sportsIncome = await Payment.aggregate([
+      { $unwind: "$activity" },
+      {
+        $group: {
+          _id: "$_id",
+          activities: { $push: "$activity" },
+          totalAmount: { $first: "$amount" },
         },
       },
       {
         $project: {
           activities: 1,
           totalAmount: 1,
-          numberOfActivities: { $size: "$activities" },  // Contamos el número de actividades
+          numberOfActivities: { $size: "$activities" },
         },
       },
-      { $unwind: "$activities" },  // Volvemos a descomponer las actividades
+      { $unwind: "$activities" },
       {
         $group: {
-          _id: "$activities",  // Agrupamos por actividad
-          income: { $sum: { $divide: ["$totalAmount", "$numberOfActivities"] } },  // Distribuimos proporcionalmente el monto entre las actividades
+          _id: "$activities",
+          income: { $sum: { $divide: ["$totalAmount", "$numberOfActivities"] } },
         },
       },
     ]);
     
+    // Map sports income to activity details
     const activityByIncome = await Promise.all(
       sportsIncome.map(async (i) => {
-        const sport = await Activity.findById(i._id);  // Obtenemos los detalles de la actividad
-        const income = i.income;  // El ingreso proporcional
+        const sport = await Activity.findById(i._id);
+        const income = i.income;
         return { sport, income };
       })
     );
-    
-    
 
-    const totalIncome = payments.reduce((accumulator, object) => {
-      return accumulator + object.amount;
-    }, 0);
-
+    // Get notifications
     const notifications = await Notification.find({});
 
+    // Sports members aggregation
     const sportsMembers = await Payment.aggregate([
       { $unwind: "$activity" },
       { $group: { _id: "$activity", count: { $sum: 1 } } },
     ]);
 
+    // Map sports members to activity details
     const sportsByMembers = await Promise.all(
       sportsMembers.map(async (i) => {
         const sport = await Activity.findById(i._id);
@@ -109,18 +198,20 @@ router.get("/", async (req, res) => {
       })
     );
 
+    // Send response
     res.send({
       membersCount,
       totalIncome,
       membersPerMonth,
-      table,
+      table: activeMembersTable,
       activityByIncome,
       notifications,
       sportsByMembers,
-      incomeByMonth, // Ingresos por mes
+      incomeByMonth,
       expiringMembersCount,
       totalActivity,
     });
+
   } catch (err) {
     console.log(err);
     res
