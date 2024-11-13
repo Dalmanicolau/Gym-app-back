@@ -227,7 +227,7 @@ router.get("/all", async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req,res) => {
+/*router.delete('/:id', async (req,res) => {
   try {
     const memberDeleted = Member.findByIdAndDelete(id);
     res.status(200).json(memberDeleted)
@@ -236,5 +236,21 @@ router.delete('/:id', async (req,res) => {
     res.status(500).json({message: "Internal Server error", error})
   }
 })
+*/
+
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deletedMember = await Member.findByIdAndDelete(id);
+    if (!deletedMember) {
+      return res.status(404).json({ message: 'Miembro no encontrado' });
+    }
+    res.status(200).json(deletedMember);
+  } catch (error) {
+    console.error('Error al eliminar miembro:', error);
+    res.status(500).json({ message: 'Error interno del servidor', error });
+  }
+});
+
 
 export default router;
