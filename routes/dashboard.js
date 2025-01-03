@@ -9,138 +9,133 @@ const router = express.Router();
 
 router.get("/", async (req, res) => {
   try {
-    const today = new Date();
-    const monthDate = new Date(today.setMonth(today.getMonth() - 1));
-
-    // Basic metrics
-    const membersCount = await Member.countDocuments({});
-    const membersPerMonth = await Member.countDocuments({
-      createdAt: { $gte: monthDate },
-    });
-    const totalActivity = await Activity.countDocuments({});
-
-    // Expiring members count
-    const currentDay = moment().tz("America/Argentina/Cordoba");
-    const nextWeek = currentDay.clone().add(7, 'days').toDate();
-    const expiringMembersCount = await Member.countDocuments({
-      'plan.expirationDate': { $lte: nextWeek },
-    });
-
-    // Get all payments for total income calculation
-    const payments = await Payment.find();
-    const totalIncome = payments.reduce((accumulator, object) => {
-      return accumulator + object.amount;
-    }, 0);
-
-    // Active members aggregation
-    const activeMembers = await Member.aggregate([
-      {
-        $project: {
-          months: {
-            $map: {
-              input: { $range: [0, 12] },
-              as: "month",
-              in: {
-                month: "$$month",
-                isActive: {
-                  $and: [
-                    { 
-                      $lte: [
-                        { $month: "$plan.startDate" },
-                        { $add: ["$$month", 1] }
-                      ]
-                    },
-                    {
-                      $gte: [
-                        { $month: "$plan.expirationDate" },
-                        { $add: ["$$month", 1] }
-                      ]
-                    }
-                  ]
+      // Primero, configuramos nuestras referencias temporales
+      const now = moment().tz("America/Argentina/Cordoba");
+      const oneYearAgo = now.clone().subtract(1, 'year').startOf('month');
+  
+      // Creamos el array de los últimos 12 meses que usaremos como referencia
+      // Lo definimos al principio ya que lo necesitaremos en varias agregaciones
+      const last12Months = Array.from({ length: 12 }, (_, i) => {
+        return now.clone().subtract(11 - i, 'months').format('YYYY-MM');
+      });
+  
+      // Métricas básicas
+      const membersCount = await Member.countDocuments({});
+      const monthDate = new Date(now.clone().subtract(1, 'month').toDate());
+      const membersPerMonth = await Member.countDocuments({
+        createdAt: { $gte: monthDate },
+      });
+      const totalActivity = await Activity.countDocuments({});
+  
+      // Miembros por expirar
+      const nextWeek = now.clone().add(7, 'days').toDate();
+      const expiringMembersCount = await Member.countDocuments({
+        'plan.expirationDate': { $lte: nextWeek },
+      });
+  
+      // Cálculo de ingresos totales
+      const payments = await Payment.find();
+      const totalIncome = payments.reduce((accumulator, object) => {
+        return accumulator + object.amount;
+      }, 0);
+  
+      // Agregación de pagos por mes
+      const paymentsByMonth = await Payment.aggregate([
+        {
+          $match: {
+            date: {
+              $gte: oneYearAgo.toDate(),
+              $lte: now.toDate()
+            }
+          }
+        },
+        {
+          $project: {
+            amount: 1,
+            yearMonth: {
+              $dateToString: {
+                format: "%Y-%m",
+                date: "$date",
+                timezone: "America/Argentina/Cordoba"
+              }
+            }
+          }
+        },
+        {
+          $group: {
+            _id: "$yearMonth",
+            totalIncome: { $sum: "$amount" }
+          }
+        },
+        {
+          $sort: { "_id": 1 }
+        }
+      ]);
+  
+      // Transformar pagos en array de 12 meses
+      const incomeByMonth = last12Months.map(yearMonth => {
+        const monthData = paymentsByMonth.find(p => p._id === yearMonth);
+        return monthData ? monthData.totalIncome : 0;
+      });
+  
+      // Agregación de miembros activos
+      const activeMembers = await Member.aggregate([
+        {
+          $project: {
+            monthsActive: {
+              $map: {
+                input: last12Months,
+                as: "yearMonth",
+                in: {
+                  yearMonth: "$$yearMonth",
+                  isActive: {
+                    $and: [
+                      {
+                        $lte: [
+                          "$plan.startDate",
+                          {
+                            $dateFromString: {
+                              dateString: { $concat: ["$$yearMonth", "-01"] },
+                              timezone: "America/Argentina/Cordoba"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        $gte: [
+                          "$plan.expirationDate",
+                          {
+                            $dateFromString: {
+                              dateString: { $concat: ["$$yearMonth", "-01"] },
+                              timezone: "America/Argentina/Cordoba"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
                 }
               }
             }
           }
-        }
-      },
-      { $unwind: "$months" },
-      {
-        $group: {
-          _id: "$months.month",
-          activeCount: {
-            $sum: { $cond: ["$months.isActive", 1, 0] }
+        },
+        { $unwind: "$monthsActive" },
+        {
+          $group: {
+            _id: "$monthsActive.yearMonth",
+            activeCount: {
+              $sum: { $cond: ["$monthsActive.isActive", 1, 0] }
+            }
           }
-        }
-      },
-      { $sort: { "_id": 1 } }
-    ]);
-
-    // Transform active members into 12-month array
-    const activeMembersTable = Array(12).fill(0);
-    activeMembers.forEach((item) => {
-      activeMembersTable[item._id] = item.activeCount;
-    });
-
-    // Updated payment aggregation logic
-    const now = new Date();
-    const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), 1);
-
-    const paymentsByMonth = await Payment.aggregate([
-      {
-        $match: {
-          date: {
-            $gte: oneYearAgo,
-            $lte: now
-          }
-        }
-      },
-      {
-        $project: {
-          amount: 1,
-          month: { $month: "$date" },
-          year: { $year: "$date" },
-          isCurrentYear: {
-            $eq: [{ $year: "$date" }, now.getFullYear()]
-          }
-        }
-      },
-      {
-        $group: {
-          _id: {
-            month: "$month",
-            year: "$year"
-          },
-          totalIncome: { $sum: "$amount" }
-        }
-      },
-      {
-        $sort: {
-          "_id.year": 1,
-          "_id.month": 1
-        }
-      }
-    ]);
-
-    // Debug logging
-    console.log('Payment aggregation results:', paymentsByMonth);
-
-    // Transform payments into 12-month array
-    const incomeByMonth = Array(12).fill(0);
-    paymentsByMonth.forEach((payment) => {
-      let monthIndex;
-      if (payment._id.year === now.getFullYear()) {
-        monthIndex = payment._id.month - 1;
-      } else {
-        const monthDiff = (now.getMonth() + 1) - payment._id.month;
-        if (monthDiff < 0) {
-          monthIndex = 12 + monthDiff;
-        }
-      }
-      
-      if (monthIndex >= 0 && monthIndex < 12) {
-        incomeByMonth[monthIndex] = payment.totalIncome;
-      }
-    });
+        },
+        { $sort: { "_id": 1 } }
+      ]);
+  
+      // Transformar miembros activos en array de 12 meses
+      const activeMembersTable = last12Months.map(yearMonth => {
+        const monthData = activeMembers.find(a => a._id === yearMonth);
+        return monthData ? monthData.activeCount : 0;
+      });
 
     // Debug logging
     console.log('Final income by month array:', incomeByMonth);
@@ -210,6 +205,7 @@ router.get("/", async (req, res) => {
       incomeByMonth,
       expiringMembersCount,
       totalActivity,
+      monthsReference: last12Months // Nuevo campo
     });
 
   } catch (err) {
