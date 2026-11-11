@@ -34,16 +34,27 @@ export const monthRangeAR = (year, month) => {
 
 export const PLAN_MONTHS = { Mensual: 1, Semestral: 6 };
 
+// Días de tolerancia: si el plan venció hace esta cantidad de días o menos, el pago
+// continúa desde el vencimiento anterior (el socio siguió viniendo "de favor").
+export const GRACE_DAYS = 30;
+
 // Desde qué fecha corren los meses de un pago:
 // - Primer pago (sin lastRenewalDate): desde la fecha de inicio del plan.
 // - Plan vigente: desde el vencimiento actual (pagar antes no hace perder días).
-// - Plan vencido: desde hoy.
-export const nextExpiration = (plan, months, today = todayAR()) => {
+// - Plan vencido: desde el vencimiento anterior (venció el 3/11, paga el 15/11 -> vence el 3/12).
+//   Si venció hace más de GRACE_DAYS (dejó de venir y vuelve), desde hoy.
+//   startFrom ('expiration' | 'today') permite elegirlo a mano al cobrar.
+export const nextExpiration = (plan, months, today = todayAR(), startFrom) => {
   const currentExpiration = toDateOnly(plan.expirationDate);
   let base;
   if (!plan.lastRenewalDate) base = toDateOnly(plan.initDate);
   else if (currentExpiration && currentExpiration >= today) base = currentExpiration;
-  else base = today;
+  else if (!currentExpiration) base = today;
+  else {
+    const daysExpired = Math.round((today - currentExpiration) / (24 * 60 * 60 * 1000));
+    const mode = startFrom || (daysExpired <= GRACE_DAYS ? 'expiration' : 'today');
+    base = mode === 'expiration' ? currentExpiration : today;
+  }
   return addMonths(base, months);
 };
 

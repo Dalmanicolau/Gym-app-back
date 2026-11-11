@@ -141,7 +141,8 @@ router.get("/:month/:year", async (req, res) => {
 // Registrar un pago y extender el plan del socio.
 // - Primer pago: el plan corre desde la fecha de inicio.
 // - Plan vigente: los meses se suman al vencimiento actual (no se pierden días).
-// - Plan vencido: los meses corren desde hoy.
+// - Plan vencido hace poco: los meses corren desde el vencimiento anterior.
+// - Plan vencido hace más de 30 días: corren desde hoy (se puede elegir con startFrom).
 router.post("/", async (req, res) => {
   try {
     const { member: memberId, method = "efectivo" } = req.body;
@@ -156,7 +157,8 @@ router.post("/", async (req, res) => {
     const member = await Member.findById(memberId);
     if (!member) return res.status(404).json({ message: "Socio no encontrado" });
 
-    const newExpiration = nextExpiration(member.plan, months);
+    const startFrom = ['expiration', 'today'].includes(req.body.startFrom) ? req.body.startFrom : undefined;
+    const newExpiration = nextExpiration(member.plan, months, undefined, startFrom);
 
     const payment = await Payment.create({
       member: member._id,
